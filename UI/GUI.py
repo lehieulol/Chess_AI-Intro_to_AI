@@ -54,7 +54,7 @@ class Frame(wx.Frame):
             self.chess_display = wx.StaticBitmap(self.panel)
             # self.board_panel = BoardPanel(self.panel)
             self.board_message = None
-            self.running = False
+            self.running = 0
             self._1st_model_timer = wx.StaticText(self.panel)
             self._2nd_model_timer = wx.StaticText(self.panel)
 
@@ -71,7 +71,6 @@ class Frame(wx.Frame):
                 self._2nd_model_timer.SetLabel(str(self.counter[1]))
 
             self.Bind(wx.EVT_TIMER, _1, self.timer)
-            self.timer.Start(1000)
 
         # Sizer
         self.InitUI()
@@ -186,13 +185,16 @@ class Frame(wx.Frame):
         self._2nd_player_entry.SetValue(path)
 
     def ThreadStart(self, event):
-        if self.running:
+        print('ThreadStart')
+        if self.running > 0:
             self.message.SetLabel('Something is running, please waited before press \'Start\'')
             return
         thread_start = Thread(target=self.Start, args=(event,))
+        self.timer.Start(1000)
         thread_start.start()
 
     def Start(self, event):
+        print('Start')
         # get color_choice, loop_num, batch_size, _1st_model_module, _2nd_model_module
         try:
             # ['1st model play as white', '2nd model play as white', '2nd model choose color', 'UI choose model to play as white']
@@ -225,7 +227,7 @@ class Frame(wx.Frame):
             self.message.SetLabel('Import Error')
             return
 
-        self.running = True
+        self.running = batch_size
         thread = []
         for _1 in range(batch_size):
             thread.append(Thread(target=self.GameStart,
@@ -233,83 +235,90 @@ class Frame(wx.Frame):
             thread[_1].start()
         for _1 in range(batch_size):
             thread[_1].join()
-        self.running = False
         self.timer.Stop()
 
     def GameStart(self, _1st_model_module, _2nd_model_module, color_choice, loop_num, display):
-        board = chess.Board()
-        model = [_1st_model_module.Model(), _2nd_model_module.Model()]
+        print('GameStart')
+        for _ in range(loop_num):
+            board = chess.Board()
+            model = [_1st_model_module.Model(), _2nd_model_module.Model()]
 
-        model[0].model_init(None)
-        model[1].model_init(None)
-        first_player = None
-        if color_choice == 0:
-            model[0].model_start('w')
-            model[1].model_start('b')
-            first_player = 0
-        elif color_choice == 1:
-            model[0].model_start('b')
-            model[1].model_start('w')
-            first_player = 1
-        elif color_choice == 2:
-            ret = model[1].model_start('')
-            if ret == 'w':
-                model[0].model_start('b')
-                first_player = 1
-            else:
+            model[0].model_init(None)
+            model[1].model_init(None)
+            first_player = None
+            if color_choice == 0:
                 model[0].model_start('w')
+                model[1].model_start('b')
                 first_player = 0
-        elif color_choice == 3:
-            ret = random.choice([['b', 'w', 1], ['w', 'b', 0]])
-            model[0].model_start(ret[0])
-            model[1].model_start(ret[1])
-            first_player = 0
+            elif color_choice == 1:
+                model[0].model_start('b')
+                model[1].model_start('w')
+                first_player = 1
+            elif color_choice == 2:
+                ret = model[1].model_start('')
+                if ret == 'w':
+                    model[0].model_start('b')
+                    first_player = 1
+                else:
+                    model[0].model_start('w')
+                    first_player = 0
+            elif color_choice == 3:
+                ret = random.choice([['b', 'w', 1], ['w', 'b', 0]])
+                model[0].model_start(ret[0])
+                model[1].model_start(ret[1])
+                first_player = 0
 
-        if display:
-            flipped = (first_player == 0)
-            self.counter[0].setTimer(12, 0)
-            self.counter[1].setTimer(12, 0)
-        while True:
-            last_move = ''
-            try:
-                last_move = board.peek().uci()
-            except:
-                pass
-            outcome = board.outcome()
-            if outcome is None:
-                current_player = 0 if (board.turn == chess.WHITE and first_player == 0) else 1
-                if display:
-                    self.counting[current_player] = True
-                board.push_uci(model[current_player].model_step(last_move))
-                if display:
-                    self.counting[current_player] = False
-                    if str(self.counter[current_player]) == "00:00":
-                        self.message.SetLabel("Player {%d} lose due to time up".format(current_player+1))
-            else:
-                outcome = 0 if outcome.winner is None else 1 if outcome.winner == chess.WHITE else -1
-                model[0 if board.turn == chess.WHITE else 1].model_stop('', outcome)
-                model[1 if board.turn == chess.WHITE else 0].model_stop(last_move, outcome)
-                break
             if display:
-                svg_board = chess.svg.board(
-                    flipped=flipped,
-                    board=board,
-                    size=parameter.BOARD_SIZE
-                )
-                f = open("temp.svg", "w")
-                f.write(svg_board)
-                f.close()
+                flipped = (first_player == 0)
+                self.counter[0].setTimer(100, 0)
+                self.counter[1].setTimer(100, 0)
+            while True:
+                last_move = ''
+                try:
+                    last_move = board.peek().uci()
+                except:
+                    pass
+                outcome = board.outcome()
+                if outcome is None:
+                    current_player = 0 if (board.turn == chess.WHITE and first_player == 0) else 1
+                    if display:
+                        self.counting[current_player] = True
+                    board.push_uci(model[current_player].model_step(last_move))
+                    if display:
+                        self.counting[current_player] = False
+                        if str(self.counter[current_player]) == "00:00":
+                            self.message.SetLabel("Player {:d} lose due to time up".format(current_player+1))
+                            break
+                else:
+                    outcome = 0 if outcome.winner is None else 1 if outcome.winner == chess.WHITE else -1
+                    model[0 if board.turn == chess.WHITE else 1].model_stop('', outcome)
+                    model[1 if board.turn == chess.WHITE else 0].model_stop(last_move, outcome)
+                    break
+                if display:
+                    svg_board = chess.svg.board(
+                        flipped=flipped,
+                        board=board,
+                        size=parameter.BOARD_SIZE
+                    )
+                    f = open("temp.svg", "w")
+                    f.write(svg_board)
+                    f.close()
 
-                rlg_board = svg2rlg("temp.svg")
-                renderPM.drawToFile(rlg_board, "temp.png", fmt="png")
+                    rlg_board = svg2rlg("temp.svg")
+                    renderPM.drawToFile(rlg_board, "temp.png", fmt="png")
 
-                png_board = wx.Image("temp.png", wx.BITMAP_TYPE_PNG).ConvertToBitmap()
-                self.chess_display.SetBitmap(png_board)
+                    png_board = wx.Image("temp.png", wx.BITMAP_TYPE_PNG).ConvertToBitmap()
+                    self.chess_display.SetBitmap(png_board)
 
-                # self.board_message.SetLabel(str(board))
-                # self.board_panel.SetImage(wx.svg.SVGimage.CreateFromFile("temp.svg"))
-        if display:
-            self.message.SetLabel(str(board.outcome()))
+                    # self.board_message.SetLabel(str(board))
+                    # self.board_panel.SetImage(wx.svg.SVGimage.CreateFromFile("temp.svg"))
+            if display:
+                if board.outcome() is not None:
+                    self.message.SetLabel(str(board.outcome()))
+        self.running -= 1
+        if self.running == 0:
+            _1st_model_module.Model.model_message('last batch is done')
+            _2nd_model_module.Model.model_message('last batch is done')
 
 class Panel(wx.Panel):
     def __init__(self, parent):

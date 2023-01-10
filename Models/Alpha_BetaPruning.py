@@ -1,4 +1,6 @@
 import chess
+from random import shuffle
+from UI import parameter
 
 class Model():
     """
@@ -9,7 +11,7 @@ class Model():
     def __init__(self):
         self.color = None
         self.board = chess.Board()
-        self.para = 0.99
+        self.discount = 0.99
         self.depth = 5
 
     def model_init(self, model_info):
@@ -48,44 +50,39 @@ class Model():
         """
         if move != '':
             self.board.push_uci(move)
-        if self.color == 1:
-            best_move = self.AlphaBetaMax(-100000000, 100000000, self.depth)['move']
-        else:
-            best_move = self.AlphaBetaMin(-100000000, 100000000, self.depth)['move']
+        score, best_move = self.AlphaBeta(float('-inf'), float('inf'), self.depth, self.color == 1)
+        best_move = best_move.uci()
+        print(self.color, 'choose:', best_move, 'have score:', score)
         self.board.push_uci(best_move)
         return best_move
 
-    def AlphaBetaMin(self, alpha, beta, depthleft):
-        if depthleft == 0:
-            return {'value': -self.ValueFunction(), 'move': None}
+    def AlphaBeta(self, alpha, beta, depthleft, isMax):
+        if depthleft == 0 or self.board.is_game_over():
+            return self.ValueFunction(), None
         all_legal_move = list(self.board.generate_legal_moves())
+        shuffle(all_legal_move)
+        best_score = float('-inf') if isMax else float('inf')
         best_move = None
         for move in all_legal_move:
             self.board.push(move)
-            score = self.AlphaBetaMax(alpha, beta, depthleft - 1)['value']
+            child_score, child_move = self.AlphaBeta(alpha, beta, depthleft-1, not isMax)
+            child_score *= self.discount
+            if depthleft == self.depth:
+                print(self.color, 'move:', move, 'score:', child_score, 'current best move:', best_move, 'current best score:', best_score)
             self.board.pop()
-            if score <= alpha:
-                return {'value': alpha, 'move': best_move}
-            if score < beta:
-                beta = score
-                best_move = move.uci()
-        return {'value': beta, 'move': best_move}
-
-    def AlphaBetaMax(self, alpha, beta, depthleft):
-        if depthleft == 0:
-            return {'value': self.ValueFunction(), 'move': None}
-        all_legal_move = list(self.board.generate_legal_moves())
-        best_move = None
-        for move in all_legal_move:
-            self.board.push(move)
-            score = self.AlphaBetaMin(alpha, beta, depthleft - 1)['value']
-            self.board.pop()
-            if score >= beta:
-                return {'value': beta, 'move': best_move}
-            if score > alpha:
-                alpha = score
-                best_move = move.uci()
-        return {'value': alpha, 'move': best_move}
+            if isMax and best_score < child_score:
+                best_score = child_score
+                best_move = move
+                alpha = max(alpha, best_score)
+                if alpha >= beta:
+                    break
+            elif (not isMax) and best_score > child_score:
+                best_score = child_score
+                best_move = move
+                beta = min(beta, best_score)
+                if alpha >= beta:
+                    break
+        return best_score, best_move
 
     def model_stop(self, move, result):
         """
@@ -99,7 +96,8 @@ class Model():
         """
         pass
 
-    def model_message(self, inp):
+    @staticmethod
+    def model_message(inp):
         """
         used for debug
         :param inp:
@@ -108,19 +106,19 @@ class Model():
         pass
 
     def ValueFunction(self):
-        if self.board.outcome() is not None:
-            winner = 0 if self.board.outcome() is None else 1 if self.board.outcome() == chess.WHITE else -1
+        if self.board.is_game_over():
+            winner = 0 if self.board.outcome().winner is None else 1 if self.board.outcome().winner == chess.WHITE else -1
             return winner * 1000000
         else:
             fen = self.board.board_fen()
             fen = fen
             val = {'Q': 9,
-                   'R': 3.5,
+                   'R': 5,
                    'B': 3.2,
                    'N': 3,
                    'P': 1,
                    'q': -9,
-                   'r': -3.5,
+                   'r': -5,
                    'b': -3.2,
                    'n': -3,
                    'p': -1}
